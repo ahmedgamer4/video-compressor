@@ -1,103 +1,240 @@
-import Image from "next/image";
+"use client";
+
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+} from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { loadFFMPEG } from "@/lib/load-ffmpeg";
+import { FFmpeg } from "@ffmpeg/ffmpeg";
+import { fetchFile } from "@ffmpeg/util";
+import { Upload } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useDropzone } from "react-dropzone";
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [isCompressing, setIsCompressing] = useState(false);
+  const [compressingProgress, setCompressingProgress] = useState(0);
+  const ffmpegRef = useRef<FFmpeg | null>(null);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  const load = async () => {
+    const ffmpeg = await loadFFMPEG();
+    ffmpegRef.current = ffmpeg;
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const onDrop = useCallback((acceptedFiles: File[]) => {
+    const file = acceptedFiles[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("video/")) {
+      alert("Invalid file type. Please upload a video file.");
+      return;
+    }
+
+    if (file.size >= 5 * 1024 * 1024) {
+      alert("File size must be less than 5MB for this demo.");
+      return;
+    }
+
+    setVideoFile(file);
+  }, []);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      "video/*": [".mp4", ".webm", ".mov"],
+    },
+    maxFiles: 1,
+    maxSize: 5 * 1024 * 1024, // 5MB
+  });
+
+  const compressVideo = async () => {
+    if (!ffmpegRef.current || !videoFile) {
+      alert("Please upload a video file first.");
+      return;
+    }
+
+    try {
+      console.log("Starting compression...");
+      setIsCompressing(true);
+      setCompressingProgress(0);
+      const ffmpeg = ffmpegRef.current;
+
+      ffmpeg.on("progress", ({ progress }) => {
+        setCompressingProgress(Math.round(progress * 100));
+      });
+
+      await ffmpeg.writeFile("input.mp4", await fetchFile(videoFile));
+
+      await ffmpeg.exec([
+        "-i",
+        "input.mp4",
+        "-c:v",
+        "libx264",
+        "-crf",
+        "23",
+        "-preset",
+        "fast",
+        "output.mp4",
+      ]);
+
+      const data = await ffmpeg.readFile("output.mp4");
+
+      if (!data || data.length === 0) {
+        throw new Error(
+          "No data returned from ffmpeg. Compression might have failed."
+        );
+      }
+
+      const compressedBlob = new Blob([data as unknown as ArrayBuffer], {
+        type: "video/mp4",
+      });
+
+      if (compressedBlob.size >= videoFile.size) {
+        console.warn(
+          "Compressed file size is not smaller than original. Compression might not be effective or original file was already small."
+        );
+      }
+
+      const url = URL.createObjectURL(compressedBlob);
+      const a = document.createElement("a");
+      a.href = url;
+
+      const originalFileName = videoFile.name.split(".").slice(0, -1).join(".");
+      const originalFileExtension = videoFile.name.split(".").pop();
+      a.download = `${originalFileName}_compressed.${
+        originalFileExtension || "mp4"
+      }`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      alert("Video compressed and downloaded successfully!");
+    } catch (error) {
+      console.error("Compression failed:", error);
+      alert(
+        `Compression failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    } finally {
+      setIsCompressing(false);
+      setCompressingProgress(0);
+    }
+  };
+
+  return (
+    <main className="container mx-auto p-4 min-h-screen">
+      <div className="max-w-4xl mx-auto space-y-8">
+        <div className="text-center space-y-2">
+          <h1 className="text-4xl font-bold">Video Compressor</h1>
+          <p className="text-muted-foreground">
+            Compress your videos with ease in your browser. (Max 5MB for demo)
+          </p>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Upload Video</CardTitle>
+            <CardDescription>
+              Select your video file to compress
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div
+              {...getRootProps()}
+              className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+                isDragActive
+                  ? "border-primary bg-primary/5"
+                  : "border-muted-foreground/25"
+              }`}
+            >
+              <input {...getInputProps()} />
+              <Upload className="mx-auto h-12 w-12 text-muted-foreground" />
+              <p className="mt-2 text-sm text-muted-foreground">
+                {isDragActive
+                  ? "Drop your video here"
+                  : "Drag and drop your video here, or click to select"}
+              </p>
+              {videoFile && (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Selected file:{" "}
+                  <span className="font-medium">{videoFile.name}</span> (
+                  {(videoFile.size / (1024 * 1024)).toFixed(2)} MB)
+                </p>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Compression Level</label>
+                <Select defaultValue="normal">
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select compression level" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="fast">Fast (Lower Quality)</SelectItem>
+                    <SelectItem value="normal">Normal (Balanced)</SelectItem>
+                    <SelectItem value="ultra">
+                      Ultra (Higher Quality)
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Output Format</label>
+                <Select defaultValue="mp4">
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select output format" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="mp4">MP4</SelectItem>
+                    <SelectItem value="webm">WebM</SelectItem>
+                    <SelectItem value="mov">MOV</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {isCompressing && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm text-muted-foreground">
+                  <span>Compressing video...</span>
+                  <span>{compressingProgress}%</span>
+                </div>
+                <Progress value={compressingProgress} className="h-2" />
+              </div>
+            )}
+
+            <Button
+              className="w-full"
+              size="lg"
+              onClick={compressVideo}
+              disabled={isCompressing || !videoFile}
+            >
+              {isCompressing ? "Compressing..." : "Compress Video"}
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    </main>
   );
 }
