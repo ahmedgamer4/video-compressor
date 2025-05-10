@@ -270,7 +270,7 @@ export default function Home() {
 
             <Button
               className="w-full"
-              size="lg"
+              size="default"
               onClick={compressVideo}
               disabled={isCompressing || !videoFile}
             >
