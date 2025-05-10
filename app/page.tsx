@@ -28,6 +28,12 @@ export default function Home() {
   const [isCompressing, setIsCompressing] = useState(false);
   const [compressingProgress, setCompressingProgress] = useState(0);
   const ffmpegRef = useRef<FFmpeg | null>(null);
+  const [compressionLevel, setCompressionLevel] = useState<
+    "fast" | "normal" | "ultra"
+  >("normal");
+  const [outputFormat, setOutputFormat] = useState<"mp4" | "webm" | "mov">(
+    "mp4"
+  );
 
   const load = async () => {
     const ffmpeg = await loadFFMPEG();
@@ -80,21 +86,31 @@ export default function Home() {
         setCompressingProgress(Math.round(progress * 100));
       });
 
-      await ffmpeg.writeFile("input.mp4", await fetchFile(videoFile));
+      await ffmpeg.writeFile(
+        `input.${videoFile.type.split("/")[1]}`,
+        await fetchFile(videoFile)
+      );
+
+      const preset =
+        compressionLevel === "fast"
+          ? "fast"
+          : compressionLevel === "normal"
+          ? "medium"
+          : "slow";
 
       await ffmpeg.exec([
         "-i",
-        "input.mp4",
+        `input.${videoFile.type.split("/")[1]}`,
         "-c:v",
         "libx264",
         "-crf",
         "23",
         "-preset",
-        "fast",
-        "output.mp4",
+        preset,
+        `output.${outputFormat}`,
       ]);
 
-      const data = await ffmpeg.readFile("output.mp4");
+      const data = await ffmpeg.readFile(`output.${outputFormat}`);
 
       if (!data || data.length === 0) {
         throw new Error(
@@ -103,7 +119,7 @@ export default function Home() {
       }
 
       const compressedBlob = new Blob([data as unknown as ArrayBuffer], {
-        type: "video/mp4",
+        type: `video/${outputFormat}`,
       });
 
       if (compressedBlob.size >= videoFile.size) {
@@ -190,9 +206,22 @@ export default function Home() {
                     <SelectValue placeholder="Select compression level" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="fast">Fast (Lower Quality)</SelectItem>
-                    <SelectItem value="normal">Normal (Balanced)</SelectItem>
-                    <SelectItem value="ultra">
+                    <SelectItem
+                      value="fast"
+                      onClick={() => setCompressionLevel("fast")}
+                    >
+                      Fast (Lower Quality)
+                    </SelectItem>
+                    <SelectItem
+                      value="normal"
+                      onClick={() => setCompressionLevel("normal")}
+                    >
+                      Normal (Balanced)
+                    </SelectItem>
+                    <SelectItem
+                      value="ultra"
+                      onClick={() => setCompressionLevel("ultra")}
+                    >
                       Ultra (Higher Quality)
                     </SelectItem>
                   </SelectContent>
@@ -206,9 +235,24 @@ export default function Home() {
                     <SelectValue placeholder="Select output format" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="mp4">MP4</SelectItem>
-                    <SelectItem value="webm">WebM</SelectItem>
-                    <SelectItem value="mov">MOV</SelectItem>
+                    <SelectItem
+                      value="mp4"
+                      onClick={() => setOutputFormat("mp4")}
+                    >
+                      MP4
+                    </SelectItem>
+                    <SelectItem
+                      value="webm"
+                      onClick={() => setOutputFormat("webm")}
+                    >
+                      WebM
+                    </SelectItem>
+                    <SelectItem
+                      value="mov"
+                      onClick={() => setOutputFormat("mov")}
+                    >
+                      MOV
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
